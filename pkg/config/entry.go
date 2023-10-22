@@ -23,6 +23,7 @@ const (
 	EnvironmentEnvKey       = "ENV"
 )
 
+// The default entries
 var (
 	configFileEntry = Entry{
 		Flag:         ConfigFlag,

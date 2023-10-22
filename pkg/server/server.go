@@ -1,3 +1,5 @@
+// Package server provides an helper type that provides access to cloud
+// features, error handling, logging and configuration management.
 package server
 
 import (
@@ -14,16 +16,19 @@ import (
 	"github.com/planetfall/framework/pkg/config"
 )
 
+// Server holds cloud features clients, a logger and the configuration.
 type Server struct {
-	Logger *log.Logger
+	Logger *log.Logger // the logger
 
-	cfg *config.Config
+	cfg config.Config // the configuration
 
-	metadataClient *metadata.Client
-	secretManager  *secretmanager.Client
-	errorReporting *errorreporting.Client
+	metadataClient *metadata.Client       // the client access the Cloud project metadatas
+	secretManager  *secretmanager.Client  // the client to access secrets
+	errorReporting *errorreporting.Client // the client to report errors
 }
 
+// Raise logs the error and report it using the ErrorReporting cloud feature.
+// The reporting is only available when in a Clouc environment.
 func (s *Server) Raise(message string, err error, req *http.Request) {
 	err = fmt.Errorf("%s: %v", message, err)
 	s.Logger.Println(err)
@@ -36,6 +41,8 @@ func (s *Server) Raise(message string, err error, req *http.Request) {
 	}
 }
 
+// Close terminates the server clients. If the server is not running on a
+// Cloud environment, it does nothing and returns nil.
 func (s *Server) Close() error {
 
 	s.Logger.Printf("stopping the server")
@@ -56,13 +63,17 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func NewServer(cfg *config.Config, serviceName string) (*Server, error) {
+// NewServer creates a new server.
+// It sets up the client for the Cloud features, if the environment is on the
+// Cloud.
+// It also creates a dedicated logger using the serviceName parameter.
+func NewServer(cfg config.Config, serviceName string) (*Server, error) {
 	// setup logging
 	environment := cfg.Environment()
 	envPrefix := strings.ToUpper(string(environment))
 	serviceNamePrefix := strings.ToLower(serviceName)
 	logPrefix := fmt.Sprintf("[%s] - %s - ", envPrefix, serviceNamePrefix)
-	logger := log.New(os.Stdout, logPrefix, log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stdout, logPrefix, log.Ldate|log.Ltime)
 
 	// setup server features
 	logger.Printf("setting up the server for %s", environment)

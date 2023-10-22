@@ -13,17 +13,17 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config is the type that holds the current runtime environment.
 type Config interface {
 	Environment() Environment
 }
 
-// Config is the type that holds the current runtime environment.
-type ConfigImpl struct {
+type configImpl struct {
 	environment Environment // Current provided runtime environment.
 }
 
 // Environment provides the current Config environment value.
-func (c *ConfigImpl) Environment() Environment {
+func (c *configImpl) Environment() Environment {
 	return c.environment
 }
 
@@ -120,7 +120,7 @@ func NewConfig(entries []Entry) (Config, error) {
 		return nil, fmt.Errorf("config.getEnvironment: %v", err)
 	}
 
-	return &ConfigImpl{
+	return &configImpl{
 		environment: environment,
 	}, nil
 }

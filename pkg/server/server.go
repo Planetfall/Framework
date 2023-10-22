@@ -3,17 +3,14 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
-	"cloud.google.com/go/compute/metadata"
-	"cloud.google.com/go/errorreporting"
-	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"github.com/planetfall/framework/pkg/config"
+	"github.com/planetfall/framework/pkg/server/features"
 )
 
 // Server holds cloud features clients, a logger and the configuration.
@@ -22,9 +19,8 @@ type Server struct {
 
 	cfg config.Config // the configuration
 
-	metadataClient *metadata.Client       // the client access the Cloud project metadatas
-	secretManager  *secretmanager.Client  // the client to access secrets
-	errorReporting *errorreporting.Client // the client to report errors
+	fp features.FeatureProvider // the provider for cloud features
+
 }
 
 // Raise logs the error and report it using the ErrorReporting cloud feature.
@@ -34,10 +30,7 @@ func (s *Server) Raise(message string, err error, req *http.Request) {
 	s.Logger.Println(err)
 
 	if s.cfg.Environment().OnCloud() {
-		s.errorReporting.Report(errorreporting.Entry{
-			Error: err,
-			Req:   req,
-		})
+		s.fp.Report(err, req)
 	}
 }
 
@@ -51,12 +44,8 @@ func (s *Server) Close() error {
 
 		s.Logger.Printf("stopping onCloud features")
 
-		if err := s.secretManager.Close(); err != nil {
-			return fmt.Errorf("secretManager.Close: %v", err)
-		}
-
-		if err := s.errorReporting.Close(); err != nil {
-			return fmt.Errorf("errorReporting.Close: %v", err)
+		if err := s.fp.Close(); err != nil {
+			return fmt.Errorf("FeatureProvider.Close: %v", err)
 		}
 	}
 
@@ -64,13 +53,20 @@ func (s *Server) Close() error {
 }
 
 // NewServer creates a new server.
-// It sets up the client for the Cloud features, if the environment is on the
-// Cloud.
-// It also creates a dedicated logger using the serviceName parameter.
-func NewServer(cfg config.Config, serviceName string) (*Server, error) {
+// It setup a dedicated logger using the serviceName parameter.
+// A custom feature provider can be given. If 0, or more than one is given,
+// it will fallback to the default provider.
+// The default provider includes a metadata client, the error reporting and the
+// secret manager.
+func NewServer(
+	cfg config.Config,
+	serviceName string,
+	featureProvider ...features.FeatureProvider,
+) (*Server, error) {
+
 	// setup logging
 	environment := cfg.Environment()
-	envPrefix := strings.ToUpper(string(environment))
+	envPrefix := strings.ToUpper(environment.String())
 	serviceNamePrefix := strings.ToLower(serviceName)
 	logPrefix := fmt.Sprintf("[%s] - %s - ", envPrefix, serviceNamePrefix)
 	logger := log.New(os.Stdout, logPrefix, log.Ldate|log.Ltime)
@@ -78,37 +74,22 @@ func NewServer(cfg config.Config, serviceName string) (*Server, error) {
 	// setup server features
 	logger.Printf("setting up the server for %s", environment)
 
-	var metadataClient *metadata.Client
-	var secretManager *secretmanager.Client
-	var errorReporting *errorreporting.Client
-
+	var fp features.FeatureProvider
 	if environment.OnCloud() {
 
 		logger.Printf("starting onCloud features")
-		ctx := context.Background()
 
-		// metadata client
-		metadataClient = metadata.NewClient(nil)
-		projectId, err := metadataClient.ProjectID()
-		if err != nil {
-			return nil, fmt.Errorf("metadataClient.ProjectID: %v", err)
+		fp = new(features.FeatureProviderImpl)
+		if len(featureProvider) == 1 {
+			fp = featureProvider[0]
 		}
 
-		// secret manager
-		secretManager, err = secretmanager.NewClient(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("secretmanager.NewClient: %v", err)
+		onError := func(err error) {
+			logger.Printf("could not log error: %v", err)
 		}
-
-		// error reporting
-		errorReporting, err = errorreporting.NewClient(ctx, projectId, errorreporting.Config{
-			ServiceName: serviceName,
-			OnError: func(err error) {
-				logger.Printf("could not log error: %v", err)
-			},
-		})
+		err := fp.New(serviceName, onError)
 		if err != nil {
-			return nil, fmt.Errorf("errorreporting.NewClient: %v", err)
+			return nil, fmt.Errorf("featureProvider.New: %v", err)
 		}
 	}
 
@@ -116,8 +97,6 @@ func NewServer(cfg config.Config, serviceName string) (*Server, error) {
 		cfg:    cfg,
 		Logger: logger,
 
-		metadataClient: metadataClient,
-		secretManager:  secretManager,
-		errorReporting: errorReporting,
+		fp: fp,
 	}, nil
 }

@@ -23,7 +23,14 @@ func resetCommandLine() {
 }
 
 func initEntries() []config.Entry {
-	return make([]config.Entry, 0)
+	return []config.Entry{
+		{
+			Flag:         "flag",
+			DefaultValue: "default",
+			Description:  "description",
+			EnvKey:       "KEY",
+		},
+	}
 }
 
 func TestNewConfig_emptyEntries(t *testing.T) {
